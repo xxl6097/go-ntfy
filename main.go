@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"ntfy/pkg/ntfy"
+	"github.com/xxl6097/go-ntfy/pkg/ntfy"
 )
 
 const (
