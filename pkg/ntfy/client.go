@@ -208,7 +208,6 @@ func (c *Client) connectStreamWithRetryConfig(ctx context.Context, topic string,
 			return conn, nil
 		}
 		if ctx.Err() != nil {
-			fmt.Println("ctx.Err()", ctx.Err())
 			return nil, ctx.Err()
 		}
 		if rc.MaxAttempts > 0 && attempt >= rc.MaxAttempts {
@@ -221,7 +220,6 @@ func (c *Client) connectStreamWithRetryConfig(ctx context.Context, topic string,
 		}
 		select {
 		case <-ctx.Done():
-			fmt.Println("ctx.Done()", ctx.Err())
 			return nil, ctx.Err()
 		case <-time.After(jitter):
 		}
