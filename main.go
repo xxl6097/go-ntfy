@@ -17,16 +17,20 @@ const (
 func runResponder(ctx context.Context) {
 	go func() {
 		client := ntfy.GetClient()
-		_ = client.Serve(ctx, requestTopic, func(_ context.Context, m *ntfy.Message) (string, string, bool, error) {
+		err := client.Serve(ctx, requestTopic, func(_ context.Context, m *ntfy.Message) (string, string, bool, error) {
 			fmt.Printf("[responder] 收到: %s tags=%v\n", m.Message, m.Tags)
 			reply := fmt.Sprintf("ack: %s (at %s)", m.Message, time.Now().Format(time.RFC3339))
 			return "reply", reply, false, nil
 		})
+		if err != nil {
+			fmt.Println("异常退出", err)
+		}
 	}()
 }
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	//ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var ops []ntfy.Option
 	if value := getenv("NTFY_ADDRESS", "https://ntfy.sh"); value != "" {
@@ -62,6 +66,7 @@ func main() {
 	}
 	fmt.Printf("[sender] 收到响应: %s tags=%v\n", reply.Message, reply.Tags)
 	fmt.Printf("[sender] singleton check: %p == %p -> %v\n", client, ntfy.GetClient(), client == ntfy.GetClient())
+	<-ctx.Done()
 }
 
 func getenv(k, def string) string {

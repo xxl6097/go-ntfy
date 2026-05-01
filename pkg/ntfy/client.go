@@ -169,6 +169,7 @@ func (c *Client) connectStream(ctx context.Context, topic string) (*streamConn, 
 		return nil, err
 	}
 	c.applyAuth(req)
+	fmt.Printf("do connect %+v\n", req.URL.String())
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -185,7 +186,11 @@ func (c *Client) connectStream(ctx context.Context, topic string) (*streamConn, 
 
 // connectStreamWithRetry 按 retry 配置进行带退避的重连。
 func (c *Client) connectStreamWithRetry(ctx context.Context, topic string, onRetry func(attempt int, err error, next time.Duration)) (*streamConn, error) {
-	rc := c.retry
+	return c.connectStreamWithRetryConfig(ctx, topic, c.retry, onRetry)
+}
+
+// connectStreamWithRetryConfig 使用指定 retry 配置进行带退避的重连。
+func (c *Client) connectStreamWithRetryConfig(ctx context.Context, topic string, rc RetryConfig, onRetry func(attempt int, err error, next time.Duration)) (*streamConn, error) {
 	if rc.InitialBackoff <= 0 {
 		rc.InitialBackoff = 1 * time.Second
 	}
@@ -203,6 +208,7 @@ func (c *Client) connectStreamWithRetry(ctx context.Context, topic string, onRet
 			return conn, nil
 		}
 		if ctx.Err() != nil {
+			fmt.Println("ctx.Err()", ctx.Err())
 			return nil, ctx.Err()
 		}
 		if rc.MaxAttempts > 0 && attempt >= rc.MaxAttempts {
@@ -215,6 +221,7 @@ func (c *Client) connectStreamWithRetry(ctx context.Context, topic string, onRet
 		}
 		select {
 		case <-ctx.Done():
+			fmt.Println("ctx.Done()", ctx.Err())
 			return nil, ctx.Err()
 		case <-time.After(jitter):
 		}
@@ -291,11 +298,16 @@ func (c *Client) PublishAndWait(ctx context.Context, reqTopic, respTopic, title,
 // Subscribe 订阅 topic，逐条调用 handler；连接失败或流断开时按 retry 配置自动重连。
 // handler 返回 false 即终止订阅；ctx 取消时返回 ctx.Err()。
 func (c *Client) Subscribe(ctx context.Context, topic string, handler func(*Message) bool) error {
+	// 流断开后重连不受 MaxAttempts 限制：只要 ctx 未取消就一直重试。
+	rc := c.retry
+	rc.MaxAttempts = 0
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		conn, err := c.connectStreamWithRetry(ctx, topic, nil)
+		conn, err := c.connectStreamWithRetryConfig(ctx, topic, rc, func(attempt int, err error, next time.Duration) {
+			fmt.Printf("subscribe %s reconnect attempt=%d after=%s err=%v\n", topic, attempt, next, err)
+		})
 		if err != nil {
 			return err
 		}
@@ -313,14 +325,17 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(*Mess
 				break
 			}
 		}
+		scanErr := conn.scanner.Err()
 		conn.Close()
 		if stop {
 			return nil
 		}
 		// 流被关闭（EOF 或读错误），重连
 		if ctx.Err() != nil {
+			fmt.Println("流被关闭 ctx.Err()", ctx.Err())
 			return ctx.Err()
 		}
+		fmt.Printf("subscribe %s stream closed err=%v, reconnecting\n", topic, scanErr)
 		// 短暂歇口气再走重试逻辑
 		select {
 		case <-ctx.Done():
